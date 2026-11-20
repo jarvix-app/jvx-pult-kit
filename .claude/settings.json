@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["Bash(pult *)"],
+    "deny": ["WebFetch", "WebSearch", "Bash(curl *)", "Bash(wget *)"]
+  }
+}

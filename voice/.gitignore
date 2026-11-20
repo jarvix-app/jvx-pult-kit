@@ -1,0 +1,15 @@
+# аудио и тексты людей, замок, журналы, токены: в репозиторий не попадают
+*.wav
+*.oga
+*.ogg
+*.opus
+*.mp3
+*.m4a
+*.txt
+*.log
+*.lock
+*.part
+__pycache__/
+.env
+config.json
+data/
