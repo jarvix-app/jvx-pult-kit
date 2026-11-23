@@ -129,11 +129,37 @@ function withKitBlock(existing, kitClaude) {
   return `${existing.replace(/\s*$/, '')}\n\n${block}`;
 }
 
-/** Файлы набора в чужом проекте не должны уехать в его git: дописываем их в локальные исключения (.git/info/exclude). */
-function excludeLocally(target, names) {
-  const info = path.join(target, '.git', 'info');
+/**
+ * Каталог `info` репозитория проекта, где лежат локальные исключения git; `null` — проект не под git.
+ *
+ * Обычный клон: `.git` — папка. Рабочее дерево (`git worktree`) и подмодуль: `.git` — ФАЙЛ со строкой `gitdir: <путь>`.
+ * У рабочего дерева исключения общие и лежат в основном репозитории: путь к нему записан в файле `commondir` внутри
+ * `gitdir`. Без этого разбора установщик в рабочем дереве молча ничего не исключал, и файлы набора попадали в `git status`.
+ */
+function gitInfoDir(target) {
+  const dotGit = path.join(target, '.git');
 
-  if (!fs.existsSync(path.join(target, '.git')) || !fs.statSync(path.join(target, '.git')).isDirectory()) return false;
+  if (!fs.existsSync(dotGit)) return null;
+  if (fs.statSync(dotGit).isDirectory()) return path.join(dotGit, 'info');
+
+  const pointer = /^gitdir:\s*(.+)$/m.exec(readIfExists(dotGit) ?? '');
+
+  if (pointer === null) return null;
+
+  const gitDir = path.resolve(target, pointer[1].trim());
+
+  if (!fs.existsSync(gitDir) || !fs.statSync(gitDir).isDirectory()) return null;
+
+  const common = (readIfExists(path.join(gitDir, 'commondir')) ?? '').trim();
+
+  return path.join(common === '' ? gitDir : path.resolve(gitDir, common), 'info');
+}
+
+/** Файлы набора в чужом проекте не должны уехать в его git: дописываем их в локальные исключения (info/exclude репозитория). */
+function excludeLocally(target, names) {
+  const info = gitInfoDir(target);
+
+  if (info === null) return false;
 
   fs.mkdirSync(info, { recursive: true });
   const file = path.join(info, 'exclude');
@@ -143,7 +169,8 @@ function excludeLocally(target, names) {
 
   if (missing.length > 0) fs.writeFileSync(file, `${have.replace(/\s*$/, '')}${have.trim() === '' ? '' : '\n'}# jvx-pult-kit: файлы набора, в репозиторий проекта не идут\n${missing.join('\n')}\n`);
 
-  return true;
+  // Для обычного клона показываем привычный путь, для рабочего дерева — настоящий: он лежит в основном репозитории.
+  return info === path.join(target, '.git', 'info') ? '.git/info/exclude' : file;
 }
 
 /** Файлы, которые копируются из этого набора (роль сотрудника, общие правила, разрешения адъютанта). */
@@ -246,7 +273,7 @@ if (opts.beside) {
 
   process.stdout.write(
     `У проекта свои CLAUDE.md или AGENTS.md: они не тронуты. Правила Пульта лежат рядом (${RULES_FILE}), подключает их ${LOCAL_FILE}.\n` +
-      (excluded ? 'Файлы набора добавлены в .git/info/exclude: в репозиторий проекта они не попадут.\n' : `Не коммитьте в проект .pult-role.md, ${RULES_FILE} и ${LOCAL_FILE}.\n`) +
+      (excluded ? `Файлы набора добавлены в ${excluded}: в репозиторий проекта они не попадут.\n` :`Не коммитьте в проект .pult-role.md, ${RULES_FILE} и ${LOCAL_FILE}.\n`) +
       `Агенту, который читает только AGENTS.md (не Claude Code), укажите на ${RULES_FILE} сами.\n`,
   );
 }

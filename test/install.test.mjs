@@ -193,6 +193,35 @@ test('свой CLAUDE.local.md сохраняется, блок набора д�
   assert.equal(fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf8'), OWN['CLAUDE.md']);
 });
 
+test('рабочее дерево git (.git — файл): исключения пишутся в основной репозиторий по commondir, а не пропускаются молча', () => {
+  // Так устроен `git worktree`: в дереве лежит файл `.git` со строкой gitdir, а общие исключения — в основном репозитории.
+  let main;
+  const prepare = (t) => {
+    own(['CLAUDE.md'])(t);
+    main = fs.mkdtempSync(path.join(os.tmpdir(), 'pult-kit-main-'));
+    made.push(main);
+    const gitDir = path.join(main, '.git', 'worktrees', 'wt');
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.writeFileSync(path.join(gitDir, 'commondir'), '../..\n');
+    fs.mkdirSync(path.join(main, '.git', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(main, '.git', 'info', 'exclude'), '# свои исключения\n');
+    fs.writeFileSync(path.join(t, '.git'), `gitdir: ${gitDir}\n`);
+  };
+  const r = install({ whoami: who('member'), prepare });
+
+  assert.equal(r.status, 0, r.stderr);
+  const exclude = fs.readFileSync(path.join(main, '.git', 'info', 'exclude'), 'utf8');
+  assert.match(exclude, /^# свои исключения\n/);
+  for (const name of ['.pult-role.md', '.pult-rules.md', 'CLAUDE.local.md']) assert.ok(exclude.split('\n').includes(name), name);
+  assert.match(r.stdout, /Файлы набора добавлены в .*exclude/);
+  assert.doesNotMatch(r.stdout, /Не коммитьте в проект/);
+
+  // Файл `.git` без gitdir или с путём в никуда — не репозиторий: честное предупреждение, ничего не пишем куда попало.
+  const broken = install({ whoami: who('member'), prepare: (t) => { own(['CLAUDE.md'])(t); fs.writeFileSync(path.join(t, '.git'), 'gitdir: /нет/такого/пути\n'); } });
+  assert.equal(broken.status, 0, broken.stderr);
+  assert.match(broken.stdout, /Не коммитьте в проект/);
+});
+
 test('в git-проекте файлы набора попадают в .git/info/exclude; --dry-run туда не пишет', () => {
   const prepare = (t) => {
     own(['CLAUDE.md'])(t);
